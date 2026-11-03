@@ -414,7 +414,7 @@ elif page == "Add Expense":
                 st.success("Your expense has been submitted successfully!")
 
                 st.success("Expense added successfully!")
-                st.rerun()
+                
 
             except Exception as e:
                 st.error(f"Expense add nahi hua: {e}")
