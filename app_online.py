@@ -411,6 +411,7 @@ elif page == "Add Expense":
                     "category": category,
                     "expense_date": expense_date.isoformat()
                 }).execute()
+                st.success("Your expense has been submitted successfully!")
 
                 st.success("Expense added successfully!")
                 st.rerun()
