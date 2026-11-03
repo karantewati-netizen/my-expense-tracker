@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 from supabase import create_client
 
+
 # --------------------------------
 # PAGE CONFIGURATION
 # --------------------------------
@@ -13,6 +14,7 @@ st.set_page_config(
     layout="wide"
 )
 
+
 # --------------------------------
 # SUPABASE CONNECTION
 # --------------------------------
@@ -21,6 +23,7 @@ try:
     SUPABASE_URL = st.secrets["SUPABASE_URL"]
     SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
 except Exception as e:
     st.error("Supabase connection details nahi mile. secrets.toml check karo.")
     st.stop()
@@ -42,8 +45,15 @@ if "user_id" not in st.session_state:
 if "user_email" not in st.session_state:
     st.session_state.user_email = None
 
+if "confirm_delete" not in st.session_state:
+    st.session_state.confirm_delete = False
+
+if "pending_delete_id" not in st.session_state:
+    st.session_state.pending_delete_id = None
+
 
 # Restore login session after Streamlit reruns
+
 if st.session_state.access_token:
     try:
         auth_session = supabase.auth.set_session(
@@ -64,6 +74,7 @@ if st.session_state.access_token:
 
 def save_login_session(response):
     """Save logged-in user's session."""
+
     if response.session and response.user:
         st.session_state.access_token = response.session.access_token
         st.session_state.refresh_token = response.session.refresh_token
@@ -411,10 +422,8 @@ elif page == "Add Expense":
                     "category": category,
                     "expense_date": expense_date.isoformat()
                 }).execute()
-                st.success("Your expense has been submitted successfully!")
 
-                
-                
+                st.success("Your expense has been submitted successfully!")
 
             except Exception as e:
                 st.error(f"Expense add nahi hua: {e}")
@@ -470,12 +479,13 @@ elif page == "View Expenses":
         st.subheader("✏️ Edit Expense")
 
         selected_id = st.selectbox(
-            "Select Expense",
+            "Select Expense to Edit",
             df["id"].tolist(),
             format_func=lambda x: (
                 f"{df.loc[df['id'] == x, 'name'].iloc[0]} - "
                 f"₹{df.loc[df['id'] == x, 'amount'].iloc[0]}"
-            )
+            ),
+            key="edit_selected_id"
         )
 
         selected = df[df["id"] == selected_id].iloc[0]
@@ -561,41 +571,75 @@ elif page == "View Expenses":
 
         st.subheader("🗑️ Delete Expense")
 
+        delete_selected_id = st.selectbox(
+            "Select Expense to Delete",
+            df["id"].tolist(),
+            format_func=lambda x: (
+                f"{df.loc[df['id'] == x, 'name'].iloc[0]} - "
+                f"₹{df.loc[df['id'] == x, 'amount'].iloc[0]}"
+            ),
+            key="delete_selected_id"
+        )
+
         if st.button("Delete Selected Expense"):
 
+            st.session_state.pending_delete_id = delete_selected_id
             st.session_state.confirm_delete = True
 
         if st.session_state.get("confirm_delete", False):
 
-            st.warning("Kya tum ye expense delete karna chahte ho?")
+            pending_id = st.session_state.pending_delete_id
 
-            col1, col2 = st.columns(2)
+            if pending_id is not None:
 
-            with col1:
+                pending_expense = df[df["id"] == pending_id]
 
-                if st.button("Yes, Delete"):
+                if not pending_expense.empty:
 
-                    try:
+                    expense_name = pending_expense.iloc[0]["name"]
 
-                        supabase.table("expenses").delete().eq(
-                            "id", selected_id
-                        ).eq(
-                            "user_id", user_id
-                        ).execute()
+                    st.warning(
+                        f"Kya tum '{expense_name}' expense delete karna chahte ho?"
+                    )
 
-                        st.session_state.confirm_delete = False
+                    col1, col2 = st.columns(2)
 
-                        st.success("Expense deleted!")
-                        st.rerun()
+                    with col1:
 
-                    except Exception as e:
-                        st.error(f"Delete failed: {e}")
+                        if st.button("Yes, Delete"):
 
-            with col2:
+                            try:
 
-                if st.button("Cancel"):
+                                supabase.table("expenses").delete().eq(
+                                    "id", pending_id
+                                ).eq(
+                                    "user_id", user_id
+                                ).execute()
+
+                                st.session_state.confirm_delete = False
+                                st.session_state.pending_delete_id = None
+
+                                st.success("Expense deleted successfully!")
+                                st.rerun()
+
+                            except Exception as e:
+                                st.error(f"Delete failed: {e}")
+
+                    with col2:
+
+                        if st.button("Cancel"):
+
+                            st.session_state.confirm_delete = False
+                            st.session_state.pending_delete_id = None
+                            st.rerun()
+
+                else:
+                    st.warning("Selected expense ab available nahi hai.")
                     st.session_state.confirm_delete = False
-                    st.rerun()
+                    st.session_state.pending_delete_id = None
+
+            else:
+                st.session_state.confirm_delete = False
 
     else:
 
