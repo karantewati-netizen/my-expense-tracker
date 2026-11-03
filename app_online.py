@@ -1,6 +1,8 @@
 
 import streamlit as st
 import pandas as pd
+import plotly.express as px
+
 from supabase import create_client
 from io import BytesIO
 from xml.sax.saxutils import escape
@@ -37,6 +39,7 @@ st.set_page_config(
 try:
     SUPABASE_URL = st.secrets["SUPABASE_URL"]
     SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 except Exception:
@@ -155,10 +158,12 @@ if not st.session_state.access_token:
         with st.form("signup_form"):
 
             signup_email = st.text_input("Email Address")
+
             signup_password = st.text_input(
                 "Create Password",
                 type="password"
             )
+
             confirm_password = st.text_input(
                 "Confirm Password",
                 type="password"
@@ -357,10 +362,7 @@ def create_pdf_report(report_df):
     )
 
     elements.append(
-        Paragraph(
-            "PERSONAL EXPENSE REPORT",
-            subtitle_style
-        )
+        Paragraph("PERSONAL EXPENSE REPORT", subtitle_style)
     )
 
     report_date = pd.Timestamp.today().strftime("%d %B %Y")
@@ -521,7 +523,6 @@ def create_pdf_report(report_df):
     ]))
 
     elements.append(expense_table)
-
     elements.append(Spacer(1, 20))
 
     elements.append(
@@ -590,33 +591,303 @@ if st.sidebar.button("Logout", width="stretch"):
 
 
 # --------------------------------
-# DASHBOARD
+# PREMIUM DASHBOARD
 # --------------------------------
 
 if page == "Dashboard":
 
-    st.title("📊 Dashboard")
+    # Custom dashboard styling
+
+    st.markdown("""
+        <style>
+        .dashboard-header {
+            background: linear-gradient(120deg, #101C3A, #263F70);
+            padding: 28px;
+            border-radius: 18px;
+            margin-bottom: 25px;
+            color: white;
+        }
+
+        .dashboard-header h1 {
+            color: white;
+            margin-bottom: 5px;
+        }
+
+        .dashboard-header p {
+            color: #CBD5E1;
+            margin: 0;
+        }
+
+        .stat-card {
+            background: linear-gradient(145deg, #172554, #263B69);
+            padding: 20px;
+            border-radius: 15px;
+            border: 1px solid #334B78;
+            min-height: 125px;
+        }
+
+        .stat-label {
+            color: #CBD5E1;
+            font-size: 14px;
+            margin-bottom: 12px;
+        }
+
+        .stat-value {
+            color: white;
+            font-size: 25px;
+            font-weight: 700;
+        }
+
+        .stat-icon {
+            font-size: 22px;
+            margin-bottom: 8px;
+        }
+
+        .section-heading {
+            font-size: 21px;
+            font-weight: 650;
+            margin-top: 15px;
+            margin-bottom: 12px;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    # Date and monthly calculations
+
+    today = pd.Timestamp.today()
+
+    valid_df = df.dropna(subset=["expense_date"]).copy()
+
+    current_month_df = valid_df[
+        (valid_df["expense_date"].dt.month == today.month) &
+        (valid_df["expense_date"].dt.year == today.year)
+    ]
 
     total_expenses = len(df)
-    total_spending = df["amount"].sum()
+    total_spending = float(df["amount"].sum())
 
-    if not df.empty:
-        highest_expense = df["amount"].max()
-        average_expense = df["amount"].mean()
-    else:
-        highest_expense = 0
-        average_expense = 0
+    current_spending = float(current_month_df["amount"].sum())
+
+    highest_expense = (
+        float(df["amount"].max()) if not df.empty else 0
+    )
+
+    remaining_budget = float(saved_budget) - current_spending
+
+    budget_percentage = (
+        current_spending / saved_budget * 100
+        if saved_budget > 0 else 0
+    )
+
+    progress_value = min(budget_percentage / 100, 1.0)
+
+    # Header
+
+    st.markdown("""
+        <div class="dashboard-header">
+            <h1>Financial Overview</h1>
+            <p>Welcome to your personal expense dashboard.</p>
+        </div>
+    """, unsafe_allow_html=True)
+
+    st.caption(f"📅 {today.strftime('%d %B %Y')}")
+
+    # Summary cards
+
+    st.markdown(
+        '<div class="section-heading">Your Financial Summary</div>',
+        unsafe_allow_html=True
+    )
 
     col1, col2, col3, col4 = st.columns(4)
 
-    col1.metric("Total Expenses", total_expenses)
-    col2.metric("Total Spending", f"₹{total_spending:.2f}")
-    col3.metric("Highest Expense", f"₹{highest_expense:.2f}")
-    col4.metric("Average Expense", f"₹{average_expense:.2f}")
+    with col1:
+        st.markdown(f"""
+            <div class="stat-card">
+                <div class="stat-icon">💸</div>
+                <div class="stat-label">Total Expenses</div>
+                <div class="stat-value">{total_expenses}</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+    with col2:
+        st.markdown(f"""
+            <div class="stat-card">
+                <div class="stat-icon">💰</div>
+                <div class="stat-label">Total Spending</div>
+                <div class="stat-value">₹{total_spending:,.0f}</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+    with col3:
+        st.markdown(f"""
+            <div class="stat-card">
+                <div class="stat-icon">🎯</div>
+                <div class="stat-label">Monthly Budget</div>
+                <div class="stat-value">₹{saved_budget:,.0f}</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+    with col4:
+        st.markdown(f"""
+            <div class="stat-card">
+                <div class="stat-icon">💵</div>
+                <div class="stat-label">Budget Remaining</div>
+                <div class="stat-value">₹{remaining_budget:,.0f}</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+    st.write("")
+
+    # Monthly budget progress
+
+    st.markdown(
+        '<div class="section-heading">Monthly Budget Usage</div>',
+        unsafe_allow_html=True
+    )
+
+    st.progress(progress_value)
+
+    budget_col1, budget_col2 = st.columns(2)
+
+    with budget_col1:
+        st.caption(
+            f"Spent: ₹{current_spending:,.2f} "
+            f"out of ₹{saved_budget:,.2f}"
+        )
+
+    with budget_col2:
+        st.caption(f"{budget_percentage:.1f}% of budget used")
+
+    if remaining_budget < 0:
+        st.error(
+            f"⚠️ You have exceeded your monthly budget by "
+            f"₹{abs(remaining_budget):,.2f}."
+        )
+
+    elif budget_percentage >= 80:
+        st.warning("You are close to your monthly budget limit!")
+
+    else:
+        st.success("You are within your monthly budget.")
 
     st.divider()
 
-    st.subheader("Recent Expenses")
+    # Spending analytics
+
+    st.markdown(
+        '<div class="section-heading">Spending Analytics</div>',
+        unsafe_allow_html=True
+    )
+
+    chart_col1, chart_col2 = st.columns(2)
+
+    with chart_col1:
+
+        st.subheader("🍩 Category-wise Spending")
+
+        if not df.empty:
+
+            category_total = (
+                df.groupby("category")["amount"]
+                .sum()
+                .reset_index()
+            )
+
+            fig = px.pie(
+                category_total,
+                names="category",
+                values="amount",
+                hole=0.55,
+                template="plotly_dark"
+            )
+
+            fig.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font_color="white",
+                margin=dict(t=20, b=20, l=10, r=10),
+                legend_title_text="Categories"
+            )
+
+            fig.update_traces(
+                textposition="inside",
+                textinfo="percent"
+            )
+
+            st.plotly_chart(
+                fig,
+                use_container_width=True
+            )
+
+        else:
+            st.info("Category chart ke liye expenses add karo.")
+
+    with chart_col2:
+
+        st.subheader("📊 Monthly Spending")
+
+        if not valid_df.empty:
+
+            monthly_data = valid_df.copy()
+
+            monthly_data["Month"] = (
+                monthly_data["expense_date"].dt.strftime("%b %Y")
+            )
+
+            monthly_total = (
+                monthly_data.groupby("Month")["amount"]
+                .sum()
+                .reset_index()
+            )
+
+            monthly_total["SortDate"] = pd.to_datetime(
+                monthly_total["Month"],
+                format="%b %Y"
+            )
+
+            monthly_total = monthly_total.sort_values("SortDate")
+
+            fig2 = px.bar(
+                monthly_total,
+                x="Month",
+                y="amount",
+                template="plotly_dark",
+                labels={
+                    "Month": "Month",
+                    "amount": "Spending (₹)"
+                }
+            )
+
+            fig2.update_traces(
+                marker_color="#3B82F6",
+                marker_line_width=0
+            )
+
+            fig2.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font_color="white",
+                margin=dict(t=20, b=20, l=10, r=10),
+                showlegend=False
+            )
+
+            st.plotly_chart(
+                fig2,
+                use_container_width=True
+            )
+
+        else:
+            st.info("Monthly chart ke liye expenses add karo.")
+
+    st.divider()
+
+    # Recent transactions
+
+    st.markdown(
+        '<div class="section-heading">🧾 Recent Transactions</div>',
+        unsafe_allow_html=True
+    )
 
     if not df.empty:
 
@@ -626,9 +897,25 @@ if page == "Dashboard":
             recent["expense_date"].dt.strftime("%d-%m-%Y")
         )
 
+        recent["amount"] = recent["amount"].apply(
+            lambda x: f"₹{x:,.2f}"
+        )
+
+        recent = recent.rename(columns={
+            "name": "Expense Name",
+            "amount": "Amount",
+            "category": "Category",
+            "expense_date": "Date"
+        })
+
         st.dataframe(
-            recent[["name", "amount", "category", "expense_date"]],
-            width="stretch",
+            recent[[
+                "Expense Name",
+                "Amount",
+                "Category",
+                "Date"
+            ]],
+            use_container_width=True,
             hide_index=True
         )
 
@@ -672,7 +959,6 @@ elif page == "Add Expense":
         if name.strip() and amount > 0:
 
             try:
-
                 supabase.table("expenses").insert({
                     "user_id": user_id,
                     "name": name.strip(),
@@ -681,7 +967,11 @@ elif page == "Add Expense":
                     "expense_date": expense_date.isoformat()
                 }).execute()
 
-                st.success("Your expense has been submitted successfully!")
+                st.success(
+                    "Your expense has been submitted successfully!"
+                )
+
+                st.rerun()
 
             except Exception as e:
                 st.error(f"Expense add nahi hua: {e}")
@@ -713,10 +1003,19 @@ elif page == "View Expenses":
                 )
             ]
 
+        display_df = view_df.copy()
+
+        display_df["expense_date"] = (
+            display_df["expense_date"].dt.strftime("%d-%m-%Y")
+        )
+
         st.dataframe(
-            view_df.assign(
-                expense_date=view_df["expense_date"].dt.strftime("%d-%m-%Y")
-            )[["name", "amount", "category", "expense_date"]],
+            display_df[[
+                "name",
+                "amount",
+                "category",
+                "expense_date"
+            ]],
             width="stretch",
             hide_index=True
         )
@@ -741,7 +1040,9 @@ elif page == "View Expenses":
                 )
 
             else:
-                st.info("PDF report ke liye koi expense available nahi hai.")
+                st.info(
+                    "PDF report ke liye koi expense available nahi hai."
+                )
 
         except Exception as e:
             st.error(f"PDF report generate nahi hui: {e}")
@@ -818,7 +1119,6 @@ elif page == "View Expenses":
             if edit_name.strip() and edit_amount > 0:
 
                 try:
-
                     supabase.table("expenses").update({
                         "name": edit_name.strip(),
                         "amount": edit_amount,
@@ -883,7 +1183,6 @@ elif page == "View Expenses":
                         if st.button("Yes, Delete"):
 
                             try:
-
                                 supabase.table("expenses").delete().eq(
                                     "id", pending_id
                                 ).eq(
@@ -908,7 +1207,10 @@ elif page == "View Expenses":
                             st.rerun()
 
                 else:
-                    st.warning("Selected expense ab available nahi hai.")
+                    st.warning(
+                        "Selected expense ab available nahi hai."
+                    )
+
                     st.session_state.confirm_delete = False
                     st.session_state.pending_delete_id = None
 
@@ -916,8 +1218,9 @@ elif page == "View Expenses":
                 st.session_state.confirm_delete = False
 
     else:
-
-        st.info("Abhi koi expense available nahi hai. Pehle expense add karo.")
+        st.info(
+            "Abhi koi expense available nahi hai. Pehle expense add karo."
+        )
 
 
 # --------------------------------
@@ -948,7 +1251,6 @@ elif page == "Reports":
         )
 
     else:
-
         st.info("Reports ke liye pehle expenses add karo.")
 
     st.divider()
@@ -967,7 +1269,6 @@ elif page == "Reports":
     if st.button("Save Budget", type="primary"):
 
         try:
-
             save_budget(budget)
 
             st.success("Your personal budget saved!")
@@ -990,7 +1291,6 @@ elif page == "Reports":
         current_spending = current_month_df["amount"].sum()
 
     else:
-
         current_spending = 0
 
     remaining = budget - current_spending
@@ -1034,5 +1334,6 @@ elif page == "Reports":
         )
 
     else:
-
-        st.info("Monthly summary ke liye expenses available nahi hain.")
+        st.info(
+            "Monthly summary ke liye expenses available nahi hain."
+        )
