@@ -2,6 +2,21 @@
 import streamlit as st
 import pandas as pd
 from supabase import create_client
+from io import BytesIO
+from xml.sax.saxutils import escape
+
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.units import mm
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    Table,
+    TableStyle
+)
 
 
 # --------------------------------
@@ -24,7 +39,7 @@ try:
     SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-except Exception as e:
+except Exception:
     st.error("Supabase connection details nahi mile. secrets.toml check karo.")
     st.stop()
 
@@ -281,6 +296,249 @@ def save_budget(amount):
 
 
 # --------------------------------
+# PDF REPORT GENERATOR
+# --------------------------------
+
+def create_pdf_report(report_df):
+
+    buffer = BytesIO()
+
+    pdf = SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(A4),
+        rightMargin=15 * mm,
+        leftMargin=15 * mm,
+        topMargin=15 * mm,
+        bottomMargin=15 * mm
+    )
+
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle(
+        "CustomTitle",
+        parent=styles["Title"],
+        fontSize=25,
+        textColor=colors.HexColor("#17365D"),
+        alignment=TA_CENTER,
+        spaceAfter=8
+    )
+
+    subtitle_style = ParagraphStyle(
+        "Subtitle",
+        parent=styles["Normal"],
+        fontSize=11,
+        textColor=colors.HexColor("#64748B"),
+        alignment=TA_CENTER,
+        spaceAfter=15
+    )
+
+    heading_style = ParagraphStyle(
+        "SectionHeading",
+        parent=styles["Heading2"],
+        textColor=colors.HexColor("#17365D"),
+        fontSize=14,
+        spaceBefore=12,
+        spaceAfter=8
+    )
+
+    cell_style = ParagraphStyle(
+        "CellStyle",
+        parent=styles["BodyText"],
+        fontSize=8,
+        leading=10
+    )
+
+    elements = []
+
+    # TITLE
+
+    elements.append(
+        Paragraph("MY EXPENSE TRACKER", title_style)
+    )
+
+    elements.append(
+        Paragraph(
+            "PERSONAL EXPENSE REPORT",
+            subtitle_style
+        )
+    )
+
+    report_date = pd.Timestamp.today().strftime("%d %B %Y")
+
+    elements.append(
+        Paragraph(
+            f"<b>Report Generated:</b> {report_date}",
+            styles["Normal"]
+        )
+    )
+
+    elements.append(Spacer(1, 15))
+
+    # SUMMARY
+
+    total_expenses = len(report_df)
+    total_amount = report_df["amount"].sum()
+
+    average_amount = (
+        total_amount / total_expenses
+        if total_expenses > 0 else 0
+    )
+
+    summary_data = [
+        ["TOTAL EXPENSES", "TOTAL SPENDING", "AVERAGE EXPENSE"],
+        [
+            str(total_expenses),
+            f"Rs. {total_amount:,.2f}",
+            f"Rs. {average_amount:,.2f}"
+        ]
+    ]
+
+    summary_table = Table(
+        summary_data,
+        colWidths=[85 * mm, 85 * mm, 85 * mm]
+    )
+
+    summary_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#17365D")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("BACKGROUND", (0, 1), (-1, 1), colors.HexColor("#EAF2F8")),
+        ("TEXTCOLOR", (0, 1), (-1, 1), colors.HexColor("#17365D")),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTNAME", (0, 1), (-1, 1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 11),
+        ("TOPPADDING", (0, 0), (-1, -1), 13),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 13),
+        ("BOX", (0, 0), (-1, -1), 1, colors.lightgrey),
+        ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.white)
+    ]))
+
+    elements.append(summary_table)
+    elements.append(Spacer(1, 18))
+
+    # CATEGORY-WISE SUMMARY
+
+    elements.append(
+        Paragraph("Category-wise Spending", heading_style)
+    )
+
+    if not report_df.empty:
+
+        category_total = (
+            report_df.groupby("category")["amount"]
+            .sum()
+            .sort_values(ascending=False)
+        )
+
+        category_rows = [
+            ["Category", "Amount (Rs.)", "Percentage"]
+        ]
+
+        for category, amount in category_total.items():
+
+            percentage = (
+                amount / total_amount * 100
+                if total_amount > 0 else 0
+            )
+
+            category_rows.append([
+                escape(str(category)),
+                f"{amount:,.2f}",
+                f"{percentage:.1f}%"
+            ])
+
+        category_table = Table(
+            category_rows,
+            colWidths=[90 * mm, 90 * mm, 75 * mm]
+        )
+
+        category_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2874A6")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [
+                colors.white,
+                colors.HexColor("#EBF5FB")
+            ]),
+            ("ALIGN", (1, 0), (-1, -1), "CENTER"),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 10),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+            ("TOPPADDING", (0, 0), (-1, -1), 8),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 8)
+        ]))
+
+        elements.append(category_table)
+
+    elements.append(Spacer(1, 18))
+
+    # COMPLETE EXPENSE DETAILS
+
+    elements.append(
+        Paragraph("Complete Expense Details", heading_style)
+    )
+
+    expense_rows = [
+        ["Date", "Expense Name", "Category", "Amount (Rs.)"]
+    ]
+
+    for _, row in report_df.iterrows():
+
+        date_value = row["expense_date"]
+
+        if pd.notna(date_value):
+            date_text = date_value.strftime("%d-%m-%Y")
+        else:
+            date_text = "-"
+
+        expense_rows.append([
+            date_text,
+            Paragraph(escape(str(row["name"])), cell_style),
+            escape(str(row["category"])),
+            f"{row['amount']:,.2f}"
+        ])
+
+    expense_table = Table(
+        expense_rows,
+        colWidths=[45 * mm, 100 * mm, 65 * mm, 45 * mm],
+        repeatRows=1
+    )
+
+    expense_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#17365D")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [
+            colors.white,
+            colors.HexColor("#F2F6FA")
+        ]),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("ALIGN", (0, 0), (0, -1), "CENTER"),
+        ("ALIGN", (2, 0), (-1, -1), "CENTER"),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.lightgrey),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7)
+    ]))
+
+    elements.append(expense_table)
+
+    elements.append(Spacer(1, 20))
+
+    elements.append(
+        Paragraph(
+            "Thank you for using My Expense Tracker!",
+            subtitle_style
+        )
+    )
+
+    pdf.build(elements)
+
+    buffer.seek(0)
+
+    return buffer.getvalue()
+
+
+# --------------------------------
 # LOAD USER DATA
 # --------------------------------
 
@@ -455,22 +713,38 @@ elif page == "View Expenses":
                 )
             ]
 
-        view_df["expense_date"] = (
-            view_df["expense_date"].dt.strftime("%d-%m-%Y")
-        )
-
         st.dataframe(
-            view_df[["name", "amount", "category", "expense_date"]],
+            view_df.assign(
+                expense_date=view_df["expense_date"].dt.strftime("%d-%m-%Y")
+            )[["name", "amount", "category", "expense_date"]],
             width="stretch",
             hide_index=True
         )
 
-        st.download_button(
-            "⬇️ Download CSV",
-            data=view_df.to_csv(index=False),
-            file_name="my_expenses.csv",
-            mime="text/csv"
-        )
+        # PDF DOWNLOAD BUTTON
+
+        st.subheader("📄 Download Your Expense Report")
+
+        try:
+
+            if not view_df.empty:
+
+                pdf_data = create_pdf_report(view_df)
+
+                st.download_button(
+                    label="📄 Download PDF Report",
+                    data=pdf_data,
+                    file_name="My_Expense_Report.pdf",
+                    mime="application/pdf",
+                    type="primary",
+                    width="stretch"
+                )
+
+            else:
+                st.info("PDF report ke liye koi expense available nahi hai.")
+
+        except Exception as e:
+            st.error(f"PDF report generate nahi hui: {e}")
 
         st.divider()
 
