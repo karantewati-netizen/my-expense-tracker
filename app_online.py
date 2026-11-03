@@ -413,7 +413,7 @@ elif page == "Add Expense":
                 }).execute()
                 st.success("Your expense has been submitted successfully!")
 
-                st.success("Expense added successfully!")
+                
                 
 
             except Exception as e:
