@@ -42,8 +42,8 @@ try:
 
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-except Exception:
-    st.error("Supabase connection details nahi mile. secrets.toml check karo.")
+except Exception as e:
+    st.error(f"Supabase connection failed: {e}")
     st.stop()
 
 
@@ -272,15 +272,14 @@ def load_budget():
         supabase.table("budgets")
         .select("monthly_budget")
         .eq("user_id", user_id)
-        .maybe_single()
         .execute()
     )
 
-    if response.data:
-        return float(response.data["monthly_budget"])
+    # Check whether a budget already exists
+    if response is not None and response.data:
+        return float(response.data[0]["monthly_budget"])
 
-    # First-time user: create default budget
-
+    # Create default budget for a new user
     default_budget = 5000.0
 
     supabase.table("budgets").upsert(
@@ -300,8 +299,6 @@ def save_budget(amount):
 
     if amount <= 0:
         raise ValueError("Budget zero se zyada hona chahiye.")
-
-    # Insert or update the user's budget
 
     supabase.table("budgets").upsert(
         {
@@ -366,8 +363,6 @@ def create_pdf_report(report_df):
     )
 
     elements = []
-
-    # TITLE
 
     elements.append(
         Paragraph("MY EXPENSE TRACKER", title_style)
@@ -557,10 +552,14 @@ def create_pdf_report(report_df):
 
 try:
     df = load_expenses()
-    saved_budget = load_budget()
-
 except Exception as e:
-    st.error(f"Database se data load nahi hua: {e}")
+    st.error(f"Expenses load failed: {type(e).__name__}: {e}")
+    st.stop()
+
+try:
+    saved_budget = load_budget()
+except Exception as e:
+    st.error(f"Budget load failed: {type(e).__name__}: {e}")
     st.stop()
 
 
@@ -607,8 +606,6 @@ if st.sidebar.button("Logout", width="stretch"):
 # --------------------------------
 
 if page == "Dashboard":
-
-    # Custom dashboard styling
 
     st.markdown("""
         <style>
@@ -664,8 +661,6 @@ if page == "Dashboard":
         </style>
     """, unsafe_allow_html=True)
 
-    # Date and monthly calculations
-
     today = pd.Timestamp.today()
 
     valid_df = df.dropna(subset=["expense_date"]).copy()
@@ -677,7 +672,6 @@ if page == "Dashboard":
 
     total_expenses = len(df)
     total_spending = float(df["amount"].sum())
-
     current_spending = float(current_month_df["amount"].sum())
 
     highest_expense = (
@@ -693,8 +687,6 @@ if page == "Dashboard":
 
     progress_value = min(budget_percentage / 100, 1.0)
 
-    # Header
-
     st.markdown("""
         <div class="dashboard-header">
             <h1>Financial Overview</h1>
@@ -703,8 +695,6 @@ if page == "Dashboard":
     """, unsafe_allow_html=True)
 
     st.caption(f"📅 {today.strftime('%d %B %Y')}")
-
-    # Summary cards
 
     st.markdown(
         '<div class="section-heading">Your Financial Summary</div>',
@@ -751,8 +741,6 @@ if page == "Dashboard":
 
     st.write("")
 
-    # Monthly budget progress
-
     st.markdown(
         '<div class="section-heading">Monthly Budget Usage</div>',
         unsafe_allow_html=True
@@ -784,8 +772,6 @@ if page == "Dashboard":
         st.success("You are within your monthly budget.")
 
     st.divider()
-
-    # Spending analytics
 
     st.markdown(
         '<div class="section-heading">Spending Analytics</div>',
@@ -893,8 +879,6 @@ if page == "Dashboard":
             st.info("Monthly chart ke liye expenses add karo.")
 
     st.divider()
-
-    # Recent transactions
 
     st.markdown(
         '<div class="section-heading">🧾 Recent Transactions</div>',
