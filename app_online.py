@@ -262,42 +262,54 @@ def load_expenses():
     return df
 
 
+# --------------------------------
+# FIXED BUDGET FUNCTIONS
+# --------------------------------
+
 def load_budget():
 
     response = (
         supabase.table("budgets")
         .select("monthly_budget")
         .eq("user_id", user_id)
+        .maybe_single()
         .execute()
     )
 
     if response.data:
-        return float(response.data[0]["monthly_budget"])
+        return float(response.data["monthly_budget"])
 
-    return 5000.0
+    # First-time user: create default budget
+
+    default_budget = 5000.0
+
+    supabase.table("budgets").upsert(
+        {
+            "user_id": user_id,
+            "monthly_budget": default_budget
+        },
+        on_conflict="user_id"
+    ).execute()
+
+    return default_budget
 
 
 def save_budget(amount):
 
-    response = (
-        supabase.table("budgets")
-        .select("user_id")
-        .eq("user_id", user_id)
-        .execute()
-    )
+    amount = float(amount)
 
-    if response.data:
+    if amount <= 0:
+        raise ValueError("Budget zero se zyada hona chahiye.")
 
-        supabase.table("budgets").update({
-            "monthly_budget": amount
-        }).eq("user_id", user_id).execute()
+    # Insert or update the user's budget
 
-    else:
-
-        supabase.table("budgets").insert({
+    supabase.table("budgets").upsert(
+        {
             "user_id": user_id,
             "monthly_budget": amount
-        }).execute()
+        },
+        on_conflict="user_id"
+    ).execute()
 
 
 # --------------------------------
@@ -1261,9 +1273,10 @@ elif page == "Reports":
 
     budget = st.number_input(
         "Enter Monthly Budget (₹)",
-        min_value=0.0,
+        min_value=1.0,
         value=float(saved_budget),
-        step=100.0
+        step=100.0,
+        key=f"budget_input_{user_id}"
     )
 
     if st.button("Save Budget", type="primary"):
@@ -1271,38 +1284,55 @@ elif page == "Reports":
         try:
             save_budget(budget)
 
-            st.success("Your personal budget saved!")
+            st.success(
+                f"Your monthly budget ₹{budget:,.2f} successfully saved!"
+            )
+
             st.rerun()
 
         except Exception as e:
             st.error(f"Budget save nahi hua: {e}")
 
-    # CURRENT MONTH SPENDING
+    # Use saved database value for calculations
 
     today = pd.Timestamp.today()
 
-    if not df.empty:
+    valid_expenses = df.dropna(
+        subset=["expense_date"]
+    ).copy()
 
-        current_month_df = df[
-            (df["expense_date"].dt.month == today.month) &
-            (df["expense_date"].dt.year == today.year)
-        ]
+    current_month_df = valid_expenses[
+        (valid_expenses["expense_date"].dt.month == today.month) &
+        (valid_expenses["expense_date"].dt.year == today.year)
+    ]
 
-        current_spending = current_month_df["amount"].sum()
+    current_spending = float(
+        current_month_df["amount"].sum()
+    )
 
-    else:
-        current_spending = 0
-
-    remaining = budget - current_spending
+    remaining = float(saved_budget) - current_spending
 
     col1, col2, col3 = st.columns(3)
 
-    col1.metric("Monthly Budget", f"₹{budget:.2f}")
-    col2.metric("Current Month Spending", f"₹{current_spending:.2f}")
-    col3.metric("Remaining Budget", f"₹{remaining:.2f}")
+    col1.metric(
+        "Monthly Budget",
+        f"₹{saved_budget:,.2f}"
+    )
+
+    col2.metric(
+        "Current Month Spending",
+        f"₹{current_spending:,.2f}"
+    )
+
+    col3.metric(
+        "Remaining Budget",
+        f"₹{remaining:,.2f}"
+    )
 
     if remaining < 0:
-        st.error("Warning! Monthly budget cross ho gaya hai.")
+        st.error(
+            f"Warning! Budget ₹{abs(remaining):,.2f} se exceed ho gaya hai."
+        )
     else:
         st.success("You are within your monthly budget!")
 
